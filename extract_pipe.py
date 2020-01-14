@@ -7,54 +7,80 @@ import pytesseract
 from PIL import Image
 from tqdm import tqdm
 
-row_height = 590
-rows_start = 330
-left_margin_rows = 220
-right_margin_rows = 245
-box_width = 1500
-
-
-
-def get_string_from_row(row):
-    '''Takes in a single row (Image Object), gets 3 text strings out'''
-    return [pytesseract.image_to_string(row.crop((i * box_width, 0 ,(i + 1) * box_width, row_height))) for i in range(3)]
-
-
 
 regexes = {
     'Name': "(?<=Name)(.*)",
     'Relative': "(Father|Mother|Husband)\\\'s.*?Name.*?:(.*)",
     'Age': "Age:\s([0-9]+)",
-    'Sex': "Sex:\s(MALE|FEMALE)"
+    'Sex': "Sex:\s(MALE|FEMALE|THIRD GENDER)"
 }
-compiled_regexes = {k:re.compile(v) for k,v in regexes.items()}
+compiled_regexes = {k: re.compile(v) for k, v in regexes.items()}
+
+row_sizes = {
+    'row_height': 290,
+    'box_width': 752,
+}
+
+
+def get_string_from_row(row):
+    '''Takes in a single row (Image Object), gets 3 text strings out'''
+    box_width = row_sizes['box_width']
+
+    return [pytesseract.image_to_string(row.crop((i * box_width, 0, (i + 1) * box_width, row.size[1])))
+            for i in range(3)]
+
+
+def get_first_offsets(width, height):
+    # First page offsets
+    return {
+        #     'name and reservation status of parliamentary constituencies': (0, 300, width, 450),
+        'Sections': (0, 1060, width/2-200, 1800),  # Sections in PDF
+        # town,ward,police,tehsil,district,pin
+        'Details': (width/2+200, 1060, width, 1800),
+        # no and name of polling station
+        'Polling Station': (0, 2000, width/2+50, height-1050),
+        'Voters': (width/6+500, height-950, width, height-800)
+    }
+
+
+def get_voter_offsets(width, height):
+    return {
+        'header': (0, 0, width, 200),
+        # As close to row lines as possible
+        'rows': (101, 210, width-120, height-370),
+    }
+
+
 def handle_sheet(filename):
     '''Takes a filename and returns a list of strings inside it'''
     image = Image.open(filename)
     width, height = image.size
-    header_box = (0,0,width, 320)
-    footer_box = (0, 6220, width, height)
-    rows = [image.crop((left_margin_rows, rows_start+ (i-1)*row_height, width-right_margin_rows, rows_start+ i*row_height)) for i in range(1, 11)]
-    strings = [get_string_from_row(row) for row in rows]
-    all_strings = [item for sublist in strings for item in sublist]
-    regexes = [[regex.search(string_)[0] if regex.search(string_) else None for regex in compiled_regexes.values()] for string_ in all_strings]
-    return{
-        'Header': pytesseract.image_to_string(image.crop(header_box)),
-        'Footer': pytesseract.image_to_string(image.crop(footer_box)),
-#         'Rows': rows,
-        'Strings': strings,
-        "Regexes": regexes
-    }
+    if os.path.basename(filename) == 'page_1.png':
+        return {
+            k: pytesseract.image_to_string(image.crop(v))
+            for k, v in get_first_offsets(width, height).items()
+        }
+    else:
+        #         import pdb; pdb.set_trace()
+        header, all_rows = (image.crop(v)
+                            for v in get_voter_offsets(width, height).values())
+        rows = [all_rows.crop((0, i * row_sizes['row_height'], all_rows.size[0],
+                               (i+1) * row_sizes['row_height'])) for i in range(10)]
+        strings = [get_string_from_row(row) for row in rows]
+        all_strings = [item for sublist in strings for item in sublist]
+        regexes = [[regex.search(string_)[0] if regex.search(
+            string_) else None for regex in compiled_regexes.values()] for string_ in all_strings]
+        return{
+            'Header': pytesseract.image_to_string(header),
+            'Strings': strings,
+            "Regexes": regexes
+        }
 
 
 '''This is a dumb, lazy approach'''
-num_files = sorted([int(re.search('[0-9]+', filename)[0]) for filename in glob.glob('./*.png')])
-usable_files = [f'page_{num}.png' for num in num_files[2:-1]]
+num_files = sorted([int(re.search('[0-9]+', filename)[0])
+                    for filename in glob.glob('./*.png')])
+usable_files = [f'page_{num}.png' for num in num_files[:-1] if num != 2]
 for file in tqdm(usable_files):
     with open(file+'.json', 'w') as f:
         json.dump(handle_sheet(file), f)
-
-
-
-
-
