@@ -21,12 +21,26 @@ row_sizes = {
     'box_width': 752,
 }
 
+voter_id_offset = {'left': 460, 'top': 0, 'right': 0, 'bottom': -200}
+
 
 def get_string_from_row(row):
     '''Takes in a single row (Image Object), gets 3 text strings out'''
     box_width = row_sizes['box_width']
 
     return [pytesseract.image_to_string(row.crop((i * box_width, 0, (i + 1) * box_width, row.size[1])))
+            for i in range(3)]
+
+
+def get_voter_id(row):
+    ''' Takes a row and returns voter IDs '''
+
+    box_width = row_sizes['box_width']
+    return [pytesseract.image_to_string(row.crop((i * box_width + voter_id_offset['left'],
+                                                  0 +
+                                                  voter_id_offset['top'], (
+                                                      i + 1) * box_width + voter_id_offset['right'],
+                                                  row.size[1] + voter_id_offset['bottom'])))
             for i in range(3)]
 
 
@@ -67,6 +81,29 @@ def handle_sheet(filename):
         rows = [all_rows.crop((0, i * row_sizes['row_height'], all_rows.size[0],
                                (i+1) * row_sizes['row_height'])) for i in range(10)]
         strings = [get_string_from_row(row) for row in rows]
+        # Tanzil's
+        voter_ids = [get_voter_id(row) for row in rows]
+        cleaned_vid = []
+        temp = []
+        # cleaning the Voter IDs extracted
+        for row_ids in voter_ids:
+            for data in row_ids:
+                data = data.split('\n')
+                for stuff in data:
+                    if len(stuff) == 10:
+                        temp.append(stuff)
+                        continue
+                    
+                    temp.append('')
+                    
+            cleaned_vid.append(temp)
+            temp = []
+
+        print('LOOK HERE -------------------------------------------------------------------------------------')
+        print(cleaned_vid)
+        print('LOOK HERE ---------------------------------------------------------------------------------------')
+
+        #  code
         all_strings = [item for sublist in strings for item in sublist]
         regexes = [[regex.search(string_)[0] if regex.search(
             string_) else None for regex in compiled_regexes.values()] for string_ in all_strings]
